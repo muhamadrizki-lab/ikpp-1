@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix5 IKPP Monitoring Dashboard",
+  "description": "Pancaran One IKPP Monitoring Dashboard - Interactive tracking of orders, fleet availability, and shipments.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
