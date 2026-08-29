@@ -15,6 +15,97 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
 
+    if (req.method === "POST") {
+      const { sheets } = req.body || {};
+
+      if (!Array.isArray(sheets) || sheets.length === 0) {
+        // Fallback to default single sheet if empty array provided
+        const defaultSheet = await fetchSheetData({
+          name: "POOLING SINARMAS",
+          url: `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=${GID_POOLING}`
+        });
+        const executedMap = await getExecutedLookupMap();
+        const enrichedOrders = enrichAndDeduplicateOrders(defaultSheet.orders, executedMap);
+
+        return res.status(200).json({
+          success: true,
+          totalOrders: enrichedOrders.length,
+          orders: enrichedOrders,
+          sheetResults: [{
+            name: "POOLING SINARMAS",
+            status: "success",
+            rowCount: enrichedOrders.length
+          }],
+          fetchedAt: new Date().toISOString()
+        });
+      }
+
+      // Filter enabled sheets only
+      const enabledSheets = sheets.filter((s: any) => s.enabled !== false && s.url && s.url.trim().length > 0);
+
+      if (enabledSheets.length === 0) {
+        return res.status(200).json({
+          success: true,
+          totalOrders: 0,
+          orders: [],
+          sheetResults: [],
+          message: "Tidak ada sheet aktif yang dikirim.",
+          fetchedAt: new Date().toISOString()
+        });
+      }
+
+      const results = await Promise.allSettled(
+        enabledSheets.map((s: any) =>
+          fetchSheetData({
+            id: s.id,
+            url: s.url,
+            name: s.name || "Google Sheet",
+            headerRowIndex: s.headerRowIndex ?? s.columnMapping?.headerRowIndex,
+            columnMapping: s.columnMapping,
+            formulaRules: s.formulaRules
+          })
+        )
+      );
+
+      const allOrders: any[] = [];
+      const sheetResults: any[] = [];
+
+      results.forEach((result, index) => {
+        const sheetMeta = enabledSheets[index];
+        if (result.status === "fulfilled") {
+          allOrders.push(...result.value.orders);
+          sheetResults.push({
+            id: sheetMeta.id,
+            name: result.value.sheetName,
+            status: "success",
+            rowCount: result.value.rowCount,
+            spreadsheetId: result.value.spreadsheetId,
+            gid: result.value.gid
+          });
+        } else {
+          sheetResults.push({
+            id: sheetMeta.id,
+            name: sheetMeta.name,
+            status: "error",
+            rowCount: 0,
+            errorMessage: result.reason?.message || "Gagal mengunduh sheet"
+          });
+        }
+      });
+
+      const executedMap = await getExecutedLookupMap();
+      const finalOrders = enrichAndDeduplicateOrders(allOrders, executedMap);
+
+      return res.status(200).json({
+        success: true,
+        totalOrders: finalOrders.length,
+        orders: finalOrders,
+        sheetResults,
+        fetchedAt: new Date().toISOString()
+      });
+    }
+
+    // Default GET request handler
     const customUrl = (req.query.url as string) || "";
     const customName = (req.query.name as string) || "POOLING SINARMAS";
 
@@ -64,4 +155,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 }
-
